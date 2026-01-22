@@ -48,15 +48,17 @@
         
         #distanceIndicator {
             position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px 30px;
+            bottom: 220px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 10px 20px;
             border-radius: 8px;
-            font-size: 18px;
-            z-index: 100;
+            font-size: 14px;
+            z-index: 110;
             transition: opacity 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
         
         #distanceIndicator.hidden {
@@ -65,24 +67,31 @@
         }
         
         .distance-bar {
-            width: 300px;
-            height: 20px;
-            background: #333;
-            border-radius: 10px;
+            width: 40px;
+            height: 200px;
+            background: #222;
+            border-radius: 3px;
             margin-top: 10px;
             overflow: hidden;
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 3px;
+            padding: 4px;
+            align-items: stretch;
         }
         
         .distance-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #ff0000, #ffff00, #00ff00);
-            transition: width 0.1s linear;
+            flex: 1;
+            background: #0ff;
+            transition: opacity 0.1s linear;
         }
         
         .distance-text {
             color: #0ff;
             font-weight: bold;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
+            text-align: center;
+            font-size: 14px;
         }
         
         #controls {
@@ -139,10 +148,17 @@
         #startButton.hidden {
             display: none;
         }
+        
+        .enter-hint {
+            display: block;
+            font-size: 14px;
+            margin-top: 8px;
+            opacity: 0.7;
+        }
     </style>
 </head>
 <body>
-    <button id="startButton">Click to Start</button>
+    <button id="startButton">Enter to Start<span class="enter-hint">or press ENTER</span></button>
     
     <div id="container">
         <!-- Music video layer (underneath) -->
@@ -158,9 +174,7 @@
     
     <div id="distanceIndicator">
         <div class="distance-text">Distance: <span id="distValue">3000</span> mm</div>
-        <div class="distance-bar">
-            <div class="distance-fill" id="distFill"></div>
-        </div>
+        <div class="distance-bar"></div>
     </div>
     
     <div id="controls">
@@ -178,6 +192,7 @@
         const FAR = 3000;    // Farthest distance (full static)
         const BLEND_SPEED = 0.12;
         const DISTANCE_STEP = 50;
+        const NUM_BARS = 25;
         
         // State
         let distance = 3000;  // Start far away (full static)
@@ -192,9 +207,23 @@
         const staticVideo = document.getElementById('staticVideo');
         const distIndicator = document.getElementById('distanceIndicator');
         const distValue = document.getElementById('distValue');
-        const distFill = document.getElementById('distFill');
+        const distanceBar = document.querySelector('.distance-bar');
         const controls = document.getElementById('controls');
         const startButton = document.getElementById('startButton');
+        
+        // Create vertical bars for distance indicator
+        const bars = [];
+        for (let i = 0; i < NUM_BARS; i++) {
+            const bar = document.createElement('div');
+            bar.style.width = '100%';
+            bar.style.height = '5px';
+            bar.style.background = '#0ff';
+            bar.style.opacity = '0.1';
+            bar.style.transition = 'opacity 0.2s ease';
+            bar.style.borderRadius = '2px';
+            distanceBar.appendChild(bar);
+            bars.push(bar);
+        }
         
         // Audio contexts for volume control
         let musicAudioCtx, staticAudioCtx;
@@ -262,13 +291,25 @@
             // Update indicator
             distValue.textContent = Math.round(distance);
             const percentage = ((FAR - distance) / (FAR - NEAR)) * 100;
-            distFill.style.width = Math.max(0, Math.min(100, percentage)) + '%';
+            
+            // Update vertical bars
+            const activeBars = Math.round((percentage / 100) * NUM_BARS);
+            bars.forEach((bar, i) => {
+                bar.style.opacity = i < activeBars ? '1' : '0.1';
+            });
             
             requestAnimationFrame(update);
         }
         
         // Keyboard controls
         document.addEventListener('keydown', (e) => {
+            // Handle Enter key to start
+            if (e.key === 'Enter' && !isPlaying) {
+                e.preventDefault();
+                startButton.click();
+                return;
+            }
+            
             switch(e.key.toLowerCase()) {
                 case 'arrowup':
                     e.preventDefault();
@@ -298,6 +339,19 @@
                     break;
             }
         });
+        
+        // Scroll/wheel control for distance
+        document.addEventListener('wheel', (e) => {
+            if (!isPlaying) return;
+            e.preventDefault();
+            
+            // Scroll up = closer (reveal), scroll down = away (static)
+            if (e.deltaY < 0) {
+                distance = Math.max(NEAR, distance - DISTANCE_STEP);
+            } else {
+                distance = Math.min(FAR, distance + DISTANCE_STEP);
+            }
+        }, { passive: false });
         
         // Start button
         startButton.addEventListener('click', async () => {
