@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Static - Interactive Installation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Monaco', 'Courier New', monospace;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+        
+        #musicVideo, #staticVideo {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        #staticVideo {
+            z-index: 2;
+        }
+        
+        #musicVideo {
+            z-index: 1;
+        }
+        
+        #distanceIndicator {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 18px;
+            z-index: 100;
+            transition: opacity 0.3s;
+        }
+        
+        #distanceIndicator.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .distance-bar {
+            width: 300px;
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        
+        .distance-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff0000, #ffff00, #00ff00);
+            transition: width 0.1s linear;
+        }
+        
+        .distance-text {
+            color: #0ff;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            line-height: 1.6;
+            z-index: 100;
+            transition: opacity 0.3s;
+        }
+        
+        #controls.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .key {
+            display: inline-block;
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin: 0 2px;
+            font-weight: bold;
+            color: #0ff;
+        }
+        
+        #startButton {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 40px;
+            font-size: 24px;
+            background: #0ff;
+            color: #000;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: bold;
+            z-index: 200;
+            transition: all 0.3s;
+        }
+        
+        #startButton:hover {
+            background: #fff;
+            transform: translate(-50%, -50%) scale(1.05);
+        }
+        
+        #startButton.hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <button id="startButton">Click to Start</button>
+    
+    <div id="container">
+        <!-- Music video layer (underneath) -->
+        <video id="musicVideo" loop muted playsinline>
+            <source src="video2.mp4" type="video/mp4">
+        </video>
+        
+        <!-- Static curtain layer (on top) -->
+        <video id="staticVideo" loop muted playsinline>
+            <source src="video1.mp4" type="video/mp4">
+        </video>
+    </div>
+    
+    <div id="distanceIndicator">
+        <div class="distance-text">Distance: <span id="distValue">3000</span> mm</div>
+        <div class="distance-bar">
+            <div class="distance-fill" id="distFill"></div>
+        </div>
+    </div>
+    
+    <div id="controls">
+        <h3 style="color: #0ff; margin-bottom: 8px;">Controls</h3>
+        <span class="key">↑</span> Move Closer (Reveal Music Video)<br>
+        <span class="key">↓</span> Move Away (Show Static)<br>
+        <span class="key">I</span> Toggle Distance Indicator<br>
+        <span class="key">M</span> Mute/Unmute<br>
+        <span class="key">ESC</span> Exit Fullscreen
+    </div>
+
+    <script>
+        // Configuration
+        const NEAR = 100;    // Closest distance (fully reveals music video)
+        const FAR = 3000;    // Farthest distance (full static)
+        const BLEND_SPEED = 0.12;
+        const DISTANCE_STEP = 50;
+        
+        // State
+        let distance = 3000;  // Start far away (full static)
+        let targetAlpha = 0.0;
+        let currentAlpha = 0.0;
+        let muted = false;
+        let showIndicator = true;
+        let isPlaying = false;
+        
+        // Elements
+        const musicVideo = document.getElementById('musicVideo');
+        const staticVideo = document.getElementById('staticVideo');
+        const distIndicator = document.getElementById('distanceIndicator');
+        const distValue = document.getElementById('distValue');
+        const distFill = document.getElementById('distFill');
+        const controls = document.getElementById('controls');
+        const startButton = document.getElementById('startButton');
+        
+        // Audio contexts for volume control
+        let musicAudioCtx, staticAudioCtx;
+        let musicSource, staticSource;
+        let musicGain, staticGain;
+        
+        // Initialize audio (called after user interaction)
+        async function initAudio() {
+            try {
+                // Create audio contexts
+                musicAudioCtx = new AudioContext();
+                staticAudioCtx = new AudioContext();
+                
+                // Create sources from video elements
+                musicSource = musicAudioCtx.createMediaElementSource(musicVideo);
+                staticSource = staticAudioCtx.createMediaElementSource(staticVideo);
+                
+                // Create gain nodes
+                musicGain = musicAudioCtx.createGain();
+                staticGain = staticAudioCtx.createGain();
+                
+                // Connect: source -> gain -> destination
+                musicSource.connect(musicGain);
+                musicGain.connect(musicAudioCtx.destination);
+                staticSource.connect(staticGain);
+                staticGain.connect(staticAudioCtx.destination);
+                
+                // Set initial volumes
+                musicVideo.muted = false;
+                staticVideo.muted = false;
+                musicGain.gain.value = 0;  // Start silent (far away)
+                staticGain.gain.value = 1;  // Start loud (showing static)
+                
+                console.log('Audio initialized');
+            } catch (e) {
+                console.error('Audio init failed:', e);
+            }
+        }
+        
+        // Calculate alpha based on distance
+        function calculateAlpha(dist) {
+            if (dist <= NEAR) return 1.0;
+            if (dist >= FAR) return 0.0;
+            return (FAR - dist) / (FAR - NEAR);
+        }
+        
+        // Update visuals and audio
+        function update() {
+            // Smooth alpha transition
+            targetAlpha = calculateAlpha(distance);
+            currentAlpha += (targetAlpha - currentAlpha) * BLEND_SPEED;
+            
+            // Update static video opacity (0 = invisible, 1 = fully visible)
+            staticVideo.style.opacity = 1 - currentAlpha;
+            
+            // Update audio volumes
+            if (musicGain && staticGain && !muted) {
+                musicGain.gain.value = currentAlpha;
+                staticGain.gain.value = 1 - currentAlpha;
+            } else if (muted && musicGain && staticGain) {
+                musicGain.gain.value = 0;
+                staticGain.gain.value = 0;
+            }
+            
+            // Update indicator
+            distValue.textContent = Math.round(distance);
+            const percentage = ((FAR - distance) / (FAR - NEAR)) * 100;
+            distFill.style.width = Math.max(0, Math.min(100, percentage)) + '%';
+            
+            requestAnimationFrame(update);
+        }
+        
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            switch(e.key.toLowerCase()) {
+                case 'arrowup':
+                    e.preventDefault();
+                    distance = Math.max(NEAR, distance - DISTANCE_STEP);
+                    break;
+                case 'arrowdown':
+                    e.preventDefault();
+                    distance = Math.min(FAR, distance + DISTANCE_STEP);
+                    break;
+                case 'i':
+                    showIndicator = !showIndicator;
+                    if (showIndicator) {
+                        distIndicator.classList.remove('hidden');
+                        controls.classList.remove('hidden');
+                    } else {
+                        distIndicator.classList.add('hidden');
+                        controls.classList.add('hidden');
+                    }
+                    break;
+                case 'm':
+                    muted = !muted;
+                    break;
+                case 'escape':
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    }
+                    break;
+            }
+        });
+        
+        // Start button
+        startButton.addEventListener('click', async () => {
+            startButton.classList.add('hidden');
+            
+            // Initialize audio
+            await initAudio();
+            
+            // Start playing videos
+            try {
+                await musicVideo.play();
+                await staticVideo.play();
+                isPlaying = true;
+                console.log('Videos playing');
+            } catch (e) {
+                console.error('Video play failed:', e);
+            }
+            
+            // Start update loop
+            update();
+            
+            // Enter fullscreen
+            try {
+                await document.documentElement.requestFullscreen();
+            } catch (e) {
+                console.log('Fullscreen not available');
+            }
+        });
+    </script>
+</body>
+</html>
